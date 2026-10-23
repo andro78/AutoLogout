@@ -1,0 +1,46 @@
+name: Build Windows installer
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/installer.yml'
+      - 'src/**'
+      - 'installer/**'
+      - 'scripts/**'
+permissions:
+  contents: read
+jobs:
+  installer:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Test extension retry logic
+        run: node tests/extension.test.cjs
+      - name: Install Inno Setup compiler
+        shell: pwsh
+        run: |
+          if (!(Test-Path '${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe')) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+      - name: Publish and compile installer
+        shell: pwsh
+        run: ./scripts/build-installer.ps1
+      - name: Record installer hash
+        shell: pwsh
+        run: |
+          $exe = 'out/installer/AutoLogout-0.2.0-Setup.exe'
+          if (!(Test-Path $exe)) { throw 'Installer missing' }
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+          "$hash  AutoLogout-0.2.0-Setup.exe" | Set-Content out/installer/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoLogout-0.2.0-Windows-x64-Setup
+          path: out/installer/*
+          if-no-files-found: error
+          retention-days: 30
