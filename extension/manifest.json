@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "AutoLogout Companion",
+  "version": "0.2.0",
+  "description": "Clears selected website login data on Windows start/end signals.",
+  "permissions": ["browsingData", "storage", "nativeMessaging", "alarms"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html" }
+}
+
