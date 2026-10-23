@@ -24,13 +24,28 @@ jobs:
       - name: Install Inno Setup compiler
         shell: pwsh
         run: |
-          if (!(Test-Path '${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe')) {
+          if (!(Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
             choco install innosetup --yes --no-progress
             if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
           }
       - name: Publish and compile installer
         shell: pwsh
         run: ./scripts/build-installer.ps1
+      - name: Smoke test install and uninstall
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'AutoLogout-Smoke'
+          $exe = (Resolve-Path 'out/installer/AutoLogout-0.2.0-Setup.exe').Path
+          $p = Start-Process -FilePath $exe -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$target`"") -Wait -PassThru -WindowStyle Hidden
+          if ($p.ExitCode -ne 0) { throw "Install failed: $($p.ExitCode)" }
+          foreach ($file in @('app/AutoLogout.App.exe', 'host/AutoLogout.Host.exe', 'extension/manifest.json', 'unins000.exe')) {
+            if (!(Test-Path (Join-Path $target $file))) { throw "Missing installed file: $file" }
+          }
+          $run = Get-ItemPropertyValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' 'AutoLogout' -ErrorAction SilentlyContinue
+          if ($null -ne $run) { throw 'Installer unexpectedly enabled Windows startup' }
+          $p = Start-Process -FilePath (Join-Path $target 'unins000.exe') -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru -WindowStyle Hidden
+          if ($p.ExitCode -ne 0) { throw "Uninstall failed: $($p.ExitCode)" }
+          if (Test-Path (Join-Path $target 'app/AutoLogout.App.exe')) { throw 'App remains after uninstall' }
       - name: Record installer hash
         shell: pwsh
         run: |

@@ -24,8 +24,9 @@ Source: "..\BUILD-STATUS.md"; DestDir: "{app}"
 [Icons]
 Name: "{autoprograms}\AutoLogout"; Filename: "{app}\app\AutoLogout.App.exe"
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "AutoLogout"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "AutoLogout"; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Google\Chrome\NativeMessagingHosts\com.autologout.bridge"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Microsoft\Edge\NativeMessagingHosts\com.autologout.bridge"; Flags: uninsdeletekey
 [Run]
 Filename: "{app}\app\AutoLogout.App.exe"; Description: "AutoLogout 열기"; Flags: nowait postinstall skipifsilent
+
