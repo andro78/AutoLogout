@@ -14,6 +14,10 @@ public partial class MainWindow : Window
     private const int WM_ENDSESSION = 0x0016;
     private bool signaled;
     private bool quitting;
+    private string? pendingId;
+    private DateTime pendingUntil;
+    private Dictionary<string, int> pendingTargets = new();
+    private string launchNotes = "";
     private readonly System.Windows.Forms.NotifyIcon tray = new();
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly System.Windows.Controls.TextBlock connections = new() { TextWrapping = TextWrapping.Wrap };
@@ -34,6 +38,36 @@ public partial class MainWindow : Window
             lines.Add(browser + ": " + (count > 0 ? $"연결됨 ({count}개 호스트)" : "연결 확인 안 됨"));
         }
         connections.Text = string.Join(" / ", lines);
+        UpdateCleanupResult();
+    }
+    private void UpdateCleanupResult()
+    {
+        if (pendingId == null) return;
+        var completed = new Dictionary<string, HashSet<string>>();
+        var errors = new List<string>();
+        foreach (var browser in new[] { "chrome", "edge" })
+        {
+            completed[browser] = new();
+            foreach (var path in Directory.GetFiles(Folder, browser + "-*.json"))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(File.ReadAllText(path));
+                    var root = doc.RootElement;
+                    if (!root.GetProperty("message").TryGetProperty("result", out var result) ||
+                        result.GetProperty("id").GetString() != pendingId) continue;
+                    if (result.GetProperty("ok").GetBoolean()) completed[browser].Add(root.GetProperty("profile").GetString()!);
+                    else if (result.TryGetProperty("error", out var error)) errors.Add(browser + ": " + error.GetString());
+                }
+                catch { }
+            }
+        }
+        var done = pendingTargets.Count > 0 && pendingTargets.All(x => completed[x.Key].Count >= x.Value);
+        var expired = DateTime.UtcNow >= pendingUntil;
+        Status.Text = (done ? "정리 완료 응답 수신" : expired ? "대기 시간 초과: 미완료 요청은 다음 연결 시 재시도" : "브라우저 정리 응답 대기 중")
+            + $" (Chrome {completed["chrome"].Count}, Edge {completed["edge"].Count}개 프로필)\n" + launchNotes
+            + (errors.Count > 0 ? "\n" + string.Join("\n", errors.Distinct()) : "");
+        if (done || expired) pendingId = null;
     }
     private Settings settings = new();
     public MainWindow()
@@ -104,8 +138,20 @@ public partial class MainWindow : Window
     }
     private void Signal(string reason)
     {
-        AtomicWrite(SignalFile, JsonSerializer.Serialize(new SignalInfo { Id = Guid.NewGuid().ToString("N"), Reason = reason, CreatedUtc = DateTime.UtcNow }));
+        var id = Guid.NewGuid().ToString("N");
+        AtomicWrite(SignalFile, JsonSerializer.Serialize(new SignalInfo { Id = id, Reason = reason, CreatedUtc = DateTime.UtcNow }));
         Status.Text = $"요청 전송: {reason} ({DateTime.Now:HH:mm:ss}). 브라우저 확장에서 완료 여부를 확인하세요.";
+        // Launching a browser during Windows shutdown is unreliable. Keep the
+        // saved request for the next sign-in instead of delaying shutdown.
+        if (reason != "windows-ending")
+        {
+            var notes = new List<string>();
+            pendingTargets = BrowserLauncher.StartRegisteredBrowsers(notes, id);
+            launchNotes = notes.Count > 0 ? string.Join("\n", notes) : "등록된 Chrome/Edge 프로필을 찾지 못했습니다. 확장 설치와 호스트 등록을 확인하세요.";
+            pendingId = id;
+            pendingUntil = DateTime.UtcNow.AddSeconds(60);
+            UpdateCleanupResult();
+        }
     }
     private void Save_Click(object sender, RoutedEventArgs e)
     {
